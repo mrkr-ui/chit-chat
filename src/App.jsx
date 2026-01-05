@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-
+import supabase from './supabaseClient'
 
 function App() {
   const [messages, setMessages] = useState([
@@ -8,7 +8,39 @@ function App() {
   ])
   const [text, setText] = useState('')
   const endRef = useRef(null)
+  const [session, setSession] = useState(null)
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session }}) => {
+      setSession(session)
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  //sign in function
+  const signIn = async () =>{
+    await supabase.auth.signInWithOAuth({ provider: 'google',
+       options: {
+        queryParams: {
+          prompt: 'select_account'
+        }
+      }
+    })
+  }
+
+  //sign out function
+  const signOut = async () => {
+    const {error} = await supabase.auth.signOut()
+    setSession(null)
+    if (error) console.log('Error signing out:', error.message)
+  }
+
+  
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -27,63 +59,77 @@ function App() {
     setText('')
   }
 
-  return (
-    <div className="w-full h-screen p-4 bg-gradient-to-b from-gray-900 to-gray-800 text-gray-100">
-      <div className="border border-gray-700 w-full h-full rounded-lg flex flex-col overflow-hidden shadow-lg max-w-6xl mx-auto">
-        {/* header */}
-        <div className="flex items-center justify-between h-20 border-b border-gray-700 px-4">
-          <div className="p-2">
-            <p className="text-gray-300 font-medium">Signed in as <span className="font-semibold">Name</span></p>
-            <p className="text-gray-300 italic text-sm">3 users online</p>
-          </div>
-          <div className="p-2">
-            <button className="px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-700 transition transform active:scale-95">
-              Sign out
-            </button>
-          </div>
-        </div>
-
-        {/* chat area */}
-        <div className="flex-1 overflow-auto p-4 space-y-4 bg-[rgba(255,255,255,0.02)]">
-          {messages.map((m) => {
-            const mine = m.author === 'You'
-            return (
-              <div
-                key={m.id}
-                className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-in`}
-              >
-                <div className={`${mine ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'} max-w-[80%] px-4 py-2 rounded-lg shadow-sm`}>
-                  <div className="text-sm font-medium opacity-90">{mine ? 'You' : m.author}</div>
-                  <div className="mt-1 break-words">{m.text}</div>
-                  <div className="text-xs opacity-60 mt-1 text-right">{m.time}</div>
-                </div>
-              </div>
-            )
-          })}
-          <div ref={endRef} />
-        </div>
-
-        {/* input / form */}
-        <form onSubmit={handleSend} className="p-4 border-t border-gray-700 bg-gradient-to-t from-black/40 to-transparent">
-          <div className="flex gap-3 items-center">
-            <input
-              aria-label="Type a message"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 p-3 bg-[#00000040] rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition transform active:scale-95"
-            >
-              Send
-            </button>
-          </div>
-        </form>
+  //no session
+  if (!session) {
+    return (
+      <div className="w-full h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 to-gray-800">
+        <button onClick={signIn} className="px-6 py-3 rounded-md bg-orange-600 hover:bg-indigo-500 text-gray-9 00 text-lg font-medium transition transform active:scale-95">
+          Sign in with Google
+        </button>
       </div>
-    </div>
-  )
+    )
+  } else {
+    return (
+      <div className="w-full h-screen p-4 bg-gradient-to-b from-gray-900 to-gray-800 text-gray-100">
+        <div className="border border-gray-700 w-full h-full rounded-lg flex flex-col overflow-hidden shadow-lg max-w-6xl mx-auto">
+          {/* header */}
+          <div className="flex items-center justify-between h-20 border-b border-gray-700 px-4">
+            <div className="p-2">
+              <p className="text-gray-300 font-medium">hello <span className="font-semibold">{session?.user?.user_metadata?.name || session?.user?.email }</span>
+              </p>
+              <p className="text-gray-300 italic text-sm">
+                3 users online
+                </p>
+            </div>
+            <div className="p-2">
+              <button onClick={signOut} className="px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-700 transition transform active:scale-95">
+                Sign out
+              </button>
+            </div>
+          </div>
+
+          {/* chat area */}
+          <div className="flex-1 overflow-auto p-4 space-y-4 bg-[rgba(255,255,255,0.02)]">
+            {messages.map((m) => {
+              const mine = m.author === 'You'
+              return (
+                <div
+                  key={m.id}
+                  className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-in`}
+                >
+                  <div className={`${mine ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'} max-w-[80%] px-4 py-2 rounded-lg shadow-sm`}>
+                    <div className="text-sm font-medium opacity-90">{mine ? 'You' : m.author}</div>
+                    <div className="mt-1 break-words">{m.text}</div>
+                    <div className="text-xs opacity-60 mt-1 text-right">{m.time}</div>
+                  </div>
+                </div>
+              )
+            })}
+            <div ref={endRef} />
+          </div>
+
+          {/* input / form */}
+          <form onSubmit={handleSend} className="p-4 border-t border-gray-700 bg-gradient-to-t from-black/40 to-transparent">
+            <div className="flex gap-3 items-center">
+              <input
+                aria-label="Type a message"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 p-3 bg-[#00000040] rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition transform active:scale-95"
+              >
+                Send
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+}
 }
 
 export default App

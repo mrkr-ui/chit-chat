@@ -43,6 +43,7 @@ function App() {
 
   useEffect(() => {
     if (!session?.user){
+      setOnline([]);
       return
     }
 
@@ -62,7 +63,10 @@ function App() {
     roomOne.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
         await roomOne.track({
+          // include display info in presence metadata so we can show names
           id: session?.user?.id,
+          name: session?.user?.user_metadata?.name || session?.user?.email,
+          avatar: session?.user?.user_metadata?.avatar_url,
         })
       }
     })
@@ -70,7 +74,9 @@ function App() {
     //handle user presence
     roomOne.on('presence', { event: 'sync' }, () => {
       const state = roomOne.presenceState();
-      setOnline(Object.keys(state))
+      // extract one display name per user (fallback to id if name missing)
+      const users = Object.entries(state).map(([key, metas]) => metas?.[0]?.name || metas?.[0]?.id || key)
+      setOnline(users)
     } )
 
     return () => {
@@ -99,7 +105,34 @@ function App() {
     })
     setMessages((s) => [...s, payload])
     setText('')
+
+  //save message to supabase
+    const { data, error } = await supabase.from('messages').insert([
+    {
+      user_id: session?.user?.id,
+      user_email: session?.user?.email,
+      username: session?.user?.user_metadata?.name, // optional
+      time: payload.timestamp,
+      avatar: payload.avatar,
+      content: text //this text is from the input field (useState 'text' variable)
+    }
+  ])
+
+  if (error) console.error('Error saving message:', error)
   }
+
+  useEffect(() => {
+    const fetchMessages = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (!error) setMessages(data);
+    };
+
+    fetchMessages();
+  }, []);
 
   // const formatTime = (timestamp) => {
   //   if (!timestamp) return ''
@@ -126,9 +159,15 @@ function App() {
   if (!session) {
     return (
       <div className="w-full h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 to-gray-800">
-        <button onClick={signIn} className="px-6 py-3 rounded-md bg-orange-600 hover:bg-indigo-500 text-gray-9 00 text-lg font-medium transition transform active:scale-95">
-          Sign in with Google
-        </button>
+        <div className='text-center space-y-6 px-6'>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-pink-400 to-yellow-300 drop-shadow-md">
+              Welcome to Chit-Chat
+          </h1>
+
+          <button onClick={signIn} className="px-6 py-3 rounded-md bg-orange-600 hover:bg-indigo-500 text-gray-9 00 text-lg font-medium transition transform active:scale-95">
+            Sign in with Google
+          </button>
+        </div>
       </div>
     )
   } else {
@@ -141,8 +180,8 @@ function App() {
               <p className="text-gray-300 font-medium">hello <span className="font-semibold">{session?.user?.user_metadata?.name || session?.user?.email }</span>
               </p>
               <p className="text-gray-300 italic text-sm">
-                {online.length + 1} users online
-                </p>
+                {online.length ? `${online.length} online: ${online.join(', ')}` : 'No users online'}
+              </p>
             </div>
             <div className="p-2">
               <button onClick={signOut} className="px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-700 transition transform active:scale-95">
@@ -172,7 +211,7 @@ function App() {
                   {!mine && (<img src={msg.avatar} alt="avatar" className="w-8 h-8 rounded-full mr-2 my-auto" />)}
 
                   <div className={`max-w-[80%] px-4 py-2 rounded-lg shadow-sm ${mine ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'}`}>
-                    <p>{msg.message || msg.text}</p>
+                    <p>{msg.content || msg.message || msg.text}</p>
 
                     {/* timestamp */}
                     <div className="text-xs opacity-60 mt-1 text-right">{msg.time || msg.timestamp}</div>

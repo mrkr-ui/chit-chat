@@ -4,11 +4,12 @@ import supabase from './supabaseClient'
 function App() {
   const [messages, setMessages] = useState([
     { id: 1, author: 'Alice', text: 'Welcome to Chit-Chat!', time: 'Now' },
-    { id: 2, author: 'You', text: 'Hi everyone 👋', time: 'Now' },
+    { id: 2, author: 'Alice', text: 'Hi everyone 👋', time: 'Now' },
   ])
   const [text, setText] = useState('')
   const endRef = useRef(null)
   const [session, setSession] = useState(null)
+  const [online, setOnline] = useState([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }}) => {
@@ -40,24 +41,86 @@ function App() {
     if (error) console.log('Error signing out:', error.message)
   }
 
+  useEffect(() => {
+    if (!session?.user){
+      return
+    }
+
+    const roomOne = supabase.channel('room-one', {
+      config:{
+        presence: {
+          key: session?.user?.id,
+        }
+      }
+    })
+
+    roomOne.on('broadcast', { event: 'message' }, (payload) => {
+      setMessages((prevMessages) => [...prevMessages, payload.payload]);
+    })
+
+    //track user room presence
+    roomOne.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await roomOne.track({
+          id: session?.user?.id,
+        })
+      }
+    })
+
+    //handle user presence
+    roomOne.on('presence', { event: 'sync' }, () => {
+      const state = roomOne.presenceState();
+      setOnline(Object.keys(state))
+    } )
+
+    return () => {
+      roomOne.unsubscribe()
+    }
+
+  }, [session])
   
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = (e) => {
+  const sendMessage = async (e) => {
     e.preventDefault()
-    const trimmed = text.trim()
-    if (!trimmed) return
-    const next = {
-      id: Date.now(),
-      author: 'You',
-      text: trimmed,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }
-    setMessages((s) => [...s, next])
+    const payload = {
+        message: text,
+        user_name: session?.user?.user_metadata?.name || session?.user?.email,
+        user_email: session?.user?.email,
+        avatar: session?.user?.user_metadata?.avatar_url,
+        timestamp: new Date().toLocaleTimeString('en-us', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      }
+    supabase.channel('room-one').send({
+      type: 'broadcast',
+      event: 'message',
+      payload
+    })
+    setMessages((s) => [...s, payload])
     setText('')
   }
+
+  // const formatTime = (timestamp) => {
+  //   if (!timestamp) return ''
+  //   if timestamp is not a parsable date, return as is (e.g. now)
+  //   if (isNaN( Date.parse(timestamp))) return timestamp
+  //   return new Date(timestamp).toLocaleTimeString('en-us', { hour: 'numeric', minute: '2-digit', hour12: true })
+  // }
+
+  // const handleSend = (e) => {
+  //   e.preventDefault()
+  //   const trimmed = text.trim()
+  //   if (!trimmed) return
+  //   const next = {
+  //     id: Date.now(),
+  //     author: 'You',
+  //     text: trimmed,
+  //     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  //   }
+  //   setMessages((s) => [...s, next])
+  //   setText('')
+  // }
 
   //no session
   if (!session) {
@@ -78,7 +141,7 @@ function App() {
               <p className="text-gray-300 font-medium">hello <span className="font-semibold">{session?.user?.user_metadata?.name || session?.user?.email }</span>
               </p>
               <p className="text-gray-300 italic text-sm">
-                3 users online
+                {online.length + 1} users online
                 </p>
             </div>
             <div className="p-2">
@@ -90,17 +153,29 @@ function App() {
 
           {/* chat area */}
           <div className="flex-1 overflow-auto p-4 space-y-4 bg-[rgba(255,255,255,0.02)]">
-            {messages.map((m) => {
-              const mine = m.author === 'You'
+            {messages.map((msg, idx) => {
+              const mine = msg?.user_email === session?.user?.email
               return (
                 <div
-                  key={m.id}
+                  key={idx}
+                  // className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-in`}
                   className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-in`}
                 >
-                  <div className={`${mine ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'} max-w-[80%] px-4 py-2 rounded-lg shadow-sm`}>
+                  {/* <div className={`${mine ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'} max-w-[80%] px-4 py-2 rounded-lg shadow-sm`}>
                     <div className="text-sm font-medium opacity-90">{mine ? 'You' : m.author}</div>
-                    <div className="mt-1 break-words">{m.text}</div>
-                    <div className="text-xs opacity-60 mt-1 text-right">{m.time}</div>
+                    <div className="mt-1 break-words">{msg.text}</div>
+                    <div className="text-xs opacity-60 mt-1 text-right">{msg.time}</div>
+                  </div> */}
+
+                  {/* received message - avatar on left */}
+
+                  {!mine && (<img src={msg.avatar} alt="avatar" className="w-8 h-8 rounded-full mr-2 my-auto" />)}
+
+                  <div className={`max-w-[80%] px-4 py-2 rounded-lg shadow-sm ${mine ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-200'}`}>
+                    <p>{msg.message || msg.text}</p>
+
+                    {/* timestamp */}
+                    <div className="text-xs opacity-60 mt-1 text-right">{msg.time || msg.timestamp}</div>
                   </div>
                 </div>
               )
@@ -109,7 +184,7 @@ function App() {
           </div>
 
           {/* input / form */}
-          <form onSubmit={handleSend} className="p-4 border-t border-gray-700 bg-gradient-to-t from-black/40 to-transparent">
+          <form onSubmit={sendMessage} className="p-4 border-t border-gray-700 bg-gradient-to-t from-black/40 to-transparent">
             <div className="flex gap-3 items-center">
               <input
                 aria-label="Type a message"

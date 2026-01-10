@@ -75,8 +75,8 @@ function App() {
     roomOne.on('presence', { event: 'sync' }, () => {
       const state = roomOne.presenceState();
       // extract one display name per user (fallback to id if name missing)
-      const users = Object.entries(state).map(([key, metas]) => metas?.[0]?.name || metas?.[0]?.id || key)
-      setOnline(users)
+      const users = Object.entries(state).map(([key, metas]) => metas?.[0]?.name || metas?.[0]?.id || key);
+      setOnline([...users])
     } )
 
     return () => {
@@ -85,6 +85,10 @@ function App() {
 
   }, [session])
   
+  useEffect(() => {
+    
+  }, [online]);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -107,7 +111,7 @@ function App() {
     setText('')
 
   //save message to supabase
-    const { data, error } = await supabase.from('messages').insert([
+    const { error } = await supabase.from('messages').insert([
     {
       user_id: session?.user?.id,
       user_email: session?.user?.email,
@@ -133,7 +137,7 @@ function App() {
 
     fetchMessages();
   }, []);
-
+  
   // const formatTime = (timestamp) => {
   //   if (!timestamp) return ''
   //   if timestamp is not a parsable date, return as is (e.g. now)
